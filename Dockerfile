@@ -4,31 +4,27 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install git
-RUN apt-get update && apt-get install -y git && apt-get clean
+# git is needed both for the clones below and for the git+ dependency in
+# requirements_docker.txt, so it stays in the image.
+RUN apt-get update && apt-get install -y --no-install-recommends git && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Grid2op scenario data.
+# Clone, copy and cleanup must stay in a SINGLE layer: a `git clone` in one RUN that is
+# `rm -rf`'d in a later one still leaves the clone (including its .git history) in the
+# intermediate layer, so it keeps counting towards the image size. --depth 1 avoids
+# fetching the history in the first place.
+RUN mkdir -p /root/data_grid2op && \
+    git clone --depth 1 https://github.com/AI4REALNET/grid2op-scenario.git /tmp/grid2op-scenario && \
+    cp -r /tmp/grid2op-scenario/ai4realnet_small /root/data_grid2op/ai4realnet_small && \
+    rm -rf /tmp/grid2op-scenario
 
-# Create the target directory
-RUN mkdir -p /home/root/data_grid2op/
-# Clone the repository
-RUN git clone https://github.com/AI4REALNET/grid2op-scenario.git /tmp/grid2op-scenario
-# Copy the folder into the data directory
-RUN mkdir -p /root/data_grid2op
-RUN cp -r /tmp/grid2op-scenario/ai4realnet_small /root/data_grid2op/ai4realnet_small
-# Cleanup
-RUN rm -rf /tmp/grid2op-scenario
+# ExpertOp4Grid -- same single-layer treatment.
+RUN git clone --depth 1 https://github.com/Mleyliabadi/ExpertOp4Grid.git /tmp/ExpertOp4Grid && \
+    pip install --no-cache-dir /tmp/ExpertOp4Grid/. && \
+    rm -rf /tmp/ExpertOp4Grid
 
-RUN git clone https://github.com/Mleyliabadi/ExpertOp4Grid.git /tmp/ExpertOp4Grid
-RUN pip install /tmp/ExpertOp4Grid/.
-RUN rm -rf /tmp/ExpertOp4Grid
-
-
-# Install OS deps (if needed)
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     gcc && \
-#     rm -rf /var/lib/apt/lists/*
-
-# Python dependencies
+# Python dependencies -- CPU-only torch / TensorFlow, see requirements_docker.txt.
 COPY requirements_docker.txt .
 RUN pip install --no-cache-dir -r requirements_docker.txt
 
@@ -38,12 +34,12 @@ COPY ExpertAgent ./ExpertAgent/
 COPY PPO_SB3 ./PPO_SB3/
 COPY setup.py .
 COPY README.md .
-# Copy the whole project
-# COPY . .
 
-
-# Install the project using setup.py at the root
-RUN pip install .
+# Install the project using setup.py at the root.
+# EXPERTAGENT_CPU_ONLY makes setup.py require `tensorflow-cpu` rather than `tensorflow`,
+# so this step cannot pull the GPU wheel back in on top of what was installed above.
+# It is set per-RUN rather than via ENV so it does not linger in the final image.
+RUN EXPERTAGENT_CPU_ONLY=1 pip install --no-cache-dir .
 
 # Expose port
 EXPOSE 8000

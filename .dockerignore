@@ -1,0 +1,28 @@
+# Keep the build context -- and therefore the image -- small.
+
+# Training checkpoints. Only PPO_SB3/model/PPO_SB3.zip is loaded at runtime (app/main.py
+# builds that exact path); the intermediate checkpoints, best_model and the eval
+# artefacts add ~880 MB and are referenced nowhere in app/ or ExpertAgent/.
+PPO_SB3/model/*_steps.zip
+PPO_SB3/model/best_model.zip
+PPO_SB3/model/evaluations.npz
+PPO_SB3/logs/
+PPO_SB3_numpy/
+
+# Caches and build artefacts
+**/__pycache__/
+**/*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Not needed to serve the API
+.git/
+.github/
+getting_started/
+logs/
+model_logs/
+**/*.log
+**/*.ipynb
+**/.ipynb_checkpoints/
+**/*Zone.Identifier
