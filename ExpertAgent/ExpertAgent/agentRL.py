@@ -149,7 +149,250 @@ class ExpertAgentRL(SB3Agent, BaseAgent):
         if act != self.action_space({}):
             self.action_list.append(act)
         return act
-    
+
+    def recommend(self,
+                   observation: BaseObservation,
+                   reward: float,
+                   top_k: Optional[int]=3,
+                   done: bool=False) -> list:
+        """Similar to `act`, but returns several ranked candidate actions instead of
+        committing to a single one. Intended for advisory / decision-support use cases
+        (e.g. a recommendation API shown to a human operator) where several options
+        should be surfaced at once. `act` should still be used to actually step a
+        grid2op episode (e.g. via a Runner), which expects exactly one action per step.
+
+        The first entry is always exactly what `act` would do for this observation --
+        `recommend` calls `act` itself to get it, rather than re-implementing its
+        decision logic, so the two can never drift apart. The remaining entries (only
+        populated when the grid is in the "danger" regime, i.e. `rho.max() > rho_danger`)
+        are other topology candidates and a dispatch-only alternative, ranked after the
+        primary one, so an operator can see what else was considered.
+
+        Parameters
+        ----------
+        top_k: int, optional
+            Maximum number of candidate actions to return (including the primary one
+            from `act`). Defaults to 3.
+
+        Returns
+        -------
+        list of dict
+            Ranked list of candidate recommendations, most recommended first. Entry 0
+            is always the `act`-equivalent primary recommendation. Each dict has keys:
+              - "action": BaseAction
+              - "reward": Optional[float], simulated reward backing the ranking when
+                 available (only set for alternative candidates coming from the ranked
+                 topology search; None for the primary and for heuristic/optim-only
+                 candidates, since those aren't comparable on the same scale)
+              - "rho_max": Optional[float], simulated `observation.rho.max()` for this
+                 candidate; None if that simulation errored
+              - "is_safe": bool, whether this candidate's `rho_max` stays under
+                 `self.rho_safe`. An alternative that isn't fully safe is still
+                 included (ranked after the safe ones) rather than silently dropped,
+                 so an operator can see the "best attempt" options even when nothing
+                 but the primary recommendation resolves the overload.
+              - "is_primary": bool, True only for entry 0 (the `act`-equivalent pick).
+              - "is_agent_action": bool, False for the supplementary operator
+                 heuristics appended at the end of the list (see `_heuristic_options`),
+                 which are manual options a human may pick rather than anything the
+                 agent is recommending. True for everything else.
+              - "source": str, which strategy produced the entry -- "act" (primary),
+                 "topo_search", "dispatch_only", "ref_topology" or "line_reconnect".
+              - "line_id": Optional[int], the line to reconnect, set only when
+                 "source" is "line_reconnect".
+
+            Note that `top_k` caps the agent's candidates only; the supplementary
+            heuristic entries are always appended after them, so the returned list
+            can be longer than `top_k`.
+        """
+        if not self._loaded and not self._trained:
+            raise Exception("You should first load the model or train it.")
+
+        if top_k is None:
+            top_k = self.top_k
+
+        # The primary recommendation is produced by calling `act` directly, with no
+        # state isolation whatsoever: `OptimModule` warm-starts each solve from
+        # `flow_computed` (as a linearization-error correction term), so its solution
+        # genuinely depends on that state. Snapshotting/restoring around this call
+        # would make `recommend` return a cold-start dispatch solution while a plain
+        # `act` call returns a warm-started one -- i.e. a different action. Letting
+        # `act` mutate `flow_computed` and `action_list` exactly as it normally does
+        # is what keeps this entry identical to what `act` alone would return.
+        primary_act = self.act(observation, reward, done)
+
+        # Only the *alternatives* below are hypotheticals that must not leave a trace,
+        # so they are isolated against this post-`act` state (and against each other).
+        flow_computed_snapshot = self.optim.flow_computed.copy()
+
+        _obs, _rew, _done, _info = observation.simulate(primary_act, time_step=1)
+        has_error = len(_info["exception"]) != 0
+        ranked_candidates = [{
+            "action": primary_act,
+            "reward": None,
+            "rho_max": float(_obs.rho.max()) if not has_error else None,
+            "is_safe": bool((not has_error) and _obs.rho.max() < self.rho_safe),
+            "is_primary": True,
+            "is_agent_action": True,
+            "source": "act",
+            "line_id": None,
+        }]
+
+        if observation.rho.max() > self.rho_danger:
+            # Gather distinct alternatives beyond the primary pick: other topology
+            # candidates (even ones that don't fully resolve the overload, so an
+            # operator can see the best attempts that weren't chosen) plus a
+            # dispatch-only option, ranked after the primary recommendation.
+            act0 = self.action_space({})
+            reconnect_act = self.reconnect.get_act(observation, act0, reward)
+            if reconnect_act is not None:
+                _r_obs, _r_rew, _r_done, _r_info = observation.simulate(reconnect_act, time_step=1)
+                if (not _r_done
+                    and reconnect_act != self.action_space({})
+                    and 0. < _r_obs.rho.max() < 2.
+                    and (len(_r_info["exception"]) == 0)
+                ):
+                    act0 += reconnect_act
+
+            alt_candidates = []
+
+            ranked_topo_acts = self.topo_search.get_ranked_acts(
+                observation, act0, reward, done, top_n=top_k
+            )
+            for c in ranked_topo_acts:
+                alt_candidates.append({"action": act0 + c["action"], "reward": c["reward"],
+                                       "source": "topo_search"})
+
+            # A dispatch-only alternative (no topology change), in case an operator
+            # wants to compare a pure redispatch/curtailment/storage strategy.
+            alt_candidates.append({"action": act0, "reward": None, "force_optim": True,
+                                   "source": "dispatch_only"})
+
+            for candidate in alt_candidates:
+                candidate_act = candidate["action"]
+                _obs, _rew, _done, _info = observation.simulate(candidate_act, time_step=1)
+                needs_optim = (
+                    candidate.get("force_optim", False)
+                    or _obs.rho.max() > self.rho_safe
+                    or (len(_info["exception"]) != 0)
+                )
+                if needs_optim:
+                    logger.info("calling optim module for one of the alternative candidates")
+                    self.optim.flow_computed[:] = flow_computed_snapshot
+                    candidate_act = self.optim.get_act(observation, candidate_act, reward)
+                    self.optim.flow_computed[:] = flow_computed_snapshot
+                    _obs, _rew, _done, _info = observation.simulate(candidate_act, time_step=1)
+                if candidate_act == primary_act:
+                    continue
+                has_error = len(_info["exception"]) != 0
+                ranked_candidates.append({
+                    "action": candidate_act,
+                    "reward": candidate["reward"],
+                    "rho_max": float(_obs.rho.max()) if not has_error else None,
+                    "is_safe": bool((not has_error) and _obs.rho.max() < self.rho_safe),
+                    "is_primary": False,
+                    "is_agent_action": True,
+                    "source": candidate["source"],
+                    "line_id": None,
+                })
+
+            # Keep the primary first, then rank the alternatives: safe ones ahead of
+            # unsafe ones, broken by how much each one helped.
+            primary, rest = ranked_candidates[0], ranked_candidates[1:]
+            rest.sort(
+                key=lambda c: (
+                    not c["is_safe"],
+                    c["rho_max"] if c["rho_max"] is not None else float("inf"),
+                )
+            )
+            ranked_candidates = [primary] + rest
+
+        # `top_k` caps the agent's own candidates only. The supplementary operator
+        # heuristics appended below are a separate category -- not agent decisions --
+        # so they are always offered rather than truncated away by the cap.
+        if top_k is not None:
+            ranked_candidates = ranked_candidates[:top_k]
+
+        ranked_candidates += self._heuristic_options(observation, reward, primary_act)
+
+        return ranked_candidates
+
+    def _heuristic_options(self,
+                           observation: BaseObservation,
+                           reward: float,
+                           primary_act: Optional[BaseAction]=None) -> list:
+        """Standard operator heuristics offered *alongside* the agent's recommendations.
+
+        These are deliberately not agent decisions -- they are well-understood manual
+        options a human operator may want to pick instead -- so every entry carries
+        `"is_agent_action": False`, and none of them is run through the optim module,
+        which keeps each one a single, clearly readable discrete action instead of a
+        composite with redispatch mixed in.
+
+        Two kinds are produced:
+
+        1. `"ref_topology"`: a step back towards the reference topology. This
+           environment has `MAX_SUB_CHANGED == 1`, so a full revert can take several
+           steps; this offers the best single-substation revert currently available
+           (`RecoverInitTopoModule` already filters out substations under cooldown).
+           `get_ranked_acts` is used rather than `get_act` so the option is still
+           offered when it doesn't improve rho -- whether that trade is worth making
+           is the operator's call here, not the agent's.
+        2. `"line_reconnect"`: one action per disconnected line that can legally be
+           reconnected right now, using the same legality test as grid2op's own
+           `RecoPowerlineAgent` (`not connected` and no remaining line cooldown), so
+           a line still serving a cooldown is never suggested.
+
+        Returns
+        -------
+        list of dict
+            Same keys as `recommend`'s entries, where "source" is "ref_topology" or
+            "line_reconnect" and "line_id" is set only for "line_reconnect". Ordered
+            safe-first, then by how much each option helped. Empty when the topology
+            is already at reference and no line can be reconnected.
+        """
+        options = []
+
+        for c in self.recover_topo.get_ranked_acts(
+            observation, self.action_space({}), reward, top_n=1
+        ):
+            options.append({"action": c["action"], "reward": c["reward"],
+                            "source": "ref_topology", "line_id": None})
+
+        can_be_reco = (~observation.line_status) & (observation.time_before_cooldown_line == 0)
+        for line_id in can_be_reco.nonzero()[0]:
+            options.append({
+                "action": self.action_space({"set_line_status": [(int(line_id), +1)]}),
+                "reward": None,
+                "source": "line_reconnect",
+                "line_id": int(line_id),
+            })
+
+        results = []
+        for opt in options:
+            if primary_act is not None and opt["action"] == primary_act:
+                continue
+            _obs, _rew, _done, _info = observation.simulate(opt["action"], time_step=1)
+            has_error = len(_info["exception"]) != 0
+            results.append({
+                "action": opt["action"],
+                "reward": opt["reward"],
+                "rho_max": float(_obs.rho.max()) if not has_error else None,
+                "is_safe": bool((not has_error) and _obs.rho.max() < self.rho_safe),
+                "is_primary": False,
+                "is_agent_action": False,
+                "source": opt["source"],
+                "line_id": opt["line_id"],
+            })
+
+        results.sort(
+            key=lambda c: (
+                not c["is_safe"],
+                c["rho_max"] if c["rho_max"] is not None else float("inf"),
+            )
+        )
+        return results
+
     def load(self, load_path: Optional[str]=None):
         if load_path is None:
             if self._nn_path is None:
