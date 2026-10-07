@@ -74,6 +74,77 @@ class GreedyModule(GreedyAgent, BaseModule):
                 best_action = self.tested_action[reward_idx]
                 return best_action
 
+    def get_ranked_acts(self, observation, base_action, reward, done=False, top_n=None, **kwargs):
+        """Same candidate generation / simulation as `get_act`, but instead of collapsing
+        the result to a single best action, returns the full ranked list of candidates.
+        Intended for use cases that need several alternative recommendations at once
+        (e.g. an advisory API) rather than driving an actual grid2op episode.
+
+        Unlike `get_act`, a candidate that doesn't fully resolve the overload (i.e. its
+        simulated `rho.max()` stays above `rho_threshold`) is NOT discarded: it is still
+        returned, ranked below the fully-safe candidates, and flagged via `is_safe`. This
+        lets a caller show the "best attempt" options to a human operator even when no
+        candidate is perfectly safe. Only candidates whose simulation raises an exception
+        or an internal error are excluded, since their outcome can't be trusted at all.
+
+        Parameters
+        ----------
+        top_n: int, optional
+            Maximum number of ranked candidates to return. Defaults to all candidates
+            that simulate without error.
+
+        Returns
+        -------
+        list of dict
+            Each dict has keys:
+              - "action": BaseAction, candidate action (not yet combined with
+                 `base_action`, same convention as `get_act`'s return value)
+              - "reward": float, simulated reward for this candidate
+              - "rho_max": float, simulated `observation.rho.max()` for this candidate
+              - "is_safe": bool, whether `rho_max` stayed under `rho_threshold`
+            Sorted with fully-safe candidates first (best reward first), followed by
+            unsafe candidates (lowest `rho_max` first, i.e. the ones that helped the
+            most). Empty list if every candidate's simulation errored out.
+        """
+        rho_threshold = (
+            min(observation.rho.max(), kwargs["rho_threshold"])
+            if "rho_threshold" in kwargs
+            else observation.rho.max()
+        )
+
+        tested_action = self._get_tested_action(observation)
+        if len(tested_action) == 0:
+            return []
+
+        candidates = []
+        for action in tested_action:
+            (
+                simul_obs,
+                simul_reward,
+                simul_has_error,
+                simul_info,
+            ) = observation.simulate(action + base_action)
+            if simul_has_error or len(simul_info["exception"]) != 0:
+                continue
+            candidates.append({
+                "action": action,
+                "reward": float(simul_reward),
+                "rho_max": float(simul_obs.rho.max()),
+                "is_safe": bool(0.0 < simul_obs.rho.max() < rho_threshold),
+            })
+
+        if len(candidates) == 0:
+            return []
+
+        candidates.sort(
+            key=lambda c: (not c["is_safe"], -c["reward"] if c["is_safe"] else c["rho_max"])
+        )
+
+        if top_n is not None:
+            candidates = candidates[:top_n]
+
+        return candidates
+
 
 class RecoPowerlineModule(RecoPowerlineAgent, BaseModule):
     """Module wrapper for the greedy RecoPowerlineAgent from Grid2Op.
