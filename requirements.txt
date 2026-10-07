@@ -1,0 +1,2 @@
+tensorflow==2.13.1
+l2rpn_baselines==0.8.0

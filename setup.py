@@ -4,6 +4,17 @@ from setuptools import setup
 
 __version__ = '0.1.0'
 
+# Set EXPERTAGENT_CPU_ONLY=1 to depend on the CPU-only TensorFlow wheel instead of the
+# GPU-capable one. The Docker build sets it (see Dockerfile) because its target server
+# has no GPU; leaving it unset keeps the default, GPU-capable install for everyone else.
+#
+# Only TensorFlow needs switching here: it ships CPU and GPU builds under *different*
+# distribution names, so `pip install .` would otherwise pull the GPU `tensorflow` wheel
+# straight back in on top of the `tensorflow-cpu` that requirements_docker.txt installed.
+# torch uses the same name for both builds -- which one you get is decided by the index
+# it is fetched from (see the --extra-index-url in requirements_docker.txt).
+CPU_ONLY = os.environ.get("EXPERTAGENT_CPU_ONLY", "0") == "1"
+
 pkgs = {
     "required": [
         "cvxpy",
@@ -12,7 +23,7 @@ pkgs = {
         "lightsim2grid",
         "numpy",
         "torch",
-        "tensorflow",
+        "tensorflow-cpu" if CPU_ONLY else "tensorflow",
         "stable-baselines3",
         "imageio",
         "numba",

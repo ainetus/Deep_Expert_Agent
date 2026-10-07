@@ -1,9 +1,23 @@
+# Dependencies for the Docker image ONLY.
+#
+# The server this image is deployed to has no GPU, so torch and TensorFlow are pinned
+# to their CPU-only builds here. That removes the bundled CUDA runtime (nvidia-*,
+# ~4.4 GB), triton (~640 MB) and the GPU halves of the torch / TF wheels themselves.
+#
+# requirements.txt and setup.py are deliberately left GPU-capable, so a plain local
+# `pip install -r requirements.txt` / `pip install .` is unaffected by this file.
+#
+# torch's CPU build is published on PyTorch's own index rather than PyPI -- the "+cpu"
+# local version does not exist on PyPI -- hence the extra index below. Everything else
+# still resolves from PyPI as usual.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 l2rpn_baselines==0.8.0
 stable_baselines3==2.7.1
 grid2op==1.12.1
 lightsim2grid==0.12.1
-torch==2.10.0
-tensorflow==2.20.0
+torch==2.10.0+cpu
+tensorflow-cpu==2.20.0
 imageio==2.37.2
 numba==0.61.2
 lxml==6.0.2
