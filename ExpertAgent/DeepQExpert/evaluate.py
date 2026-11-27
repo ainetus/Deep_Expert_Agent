@@ -12,8 +12,8 @@ from grid2op.Reward import L2RPNSandBoxScore, L2RPNReward
 # from l2rpn_baselines.utils import cli_eval
 from l2rpn_baselines.utils.save_log_gif import save_log_gif
 
-from ExpertAgent.utils import get_package_root
 from ExpertAgent.utils.helper_functions import plot_runner_results
+from ExpertAgent.utils.local_data import get_release_model, get_release_model_dir
 from ExpertAgent.DeepQExpert.deepQExpert import DeepQExpert, DEFAULT_NAME
 
 DEFAULT_LOGS_DIR = "./logs-eval/do-nothing-baseline"
@@ -174,8 +174,6 @@ if __name__ == "__main__":
     
     # env_name = getattr(args, "env_name", "l2rpn_case14_sandbox")
     # name = getattr(args, "name", "DeepQExpert")
-    # load_path = getattr(args, "load_path", os.path.join(get_package_root(), "DeepQExpert", "l2rpn_case14_sandbox"))
-    # logs_path = getattr(args, "logs_dir", os.path.join(get_package_root(), "DeepQExpert", "l2rpn_case14_sandbox", "logs_eval"))
     # nb_episodes = getattr(args, "nb_episodes", 8)
     # nb_process = getattr(args, "nb_process", 1)    
     # max_steps = getattr(args, "max_steps", env.max_episode_duration())
@@ -191,8 +189,11 @@ if __name__ == "__main__":
                })
     
     name = "DeepQExpert"
-    load_path = os.path.join(get_package_root(), "DeepQExpert", "l2rpn_case14_sandbox")
-    logs_path = os.path.join(get_package_root(), "DeepQExpert", "l2rpn_case14_sandbox", "logs_eval")
+    # The released model, downloaded on first use into
+    # local_data/l2rpn_case14_sandbox/DeepQExpert/<release tag>/model.
+    # To evaluate your own run instead: load_path = get_run_dir(env_name, name, "<run_name>", "model")
+    load_path = get_release_model(name, env_name)
+    logs_path = os.path.join(get_release_model_dir(name, env_name), "eval")
     nb_episodes = 8
     nb_process = 1
     max_steps = env.max_episode_duration()

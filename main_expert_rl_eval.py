@@ -11,8 +11,8 @@ from grid2op.Runner import Runner
 
 from ExpertAgent.ExpertAgent import ExpertAgentRL
 from ExpertAgent.utils.helper_functions import create_env
-from ExpertAgent.utils import get_package_root
 from ExpertAgent.utils.helper_functions import plot_runner_results
+from ExpertAgent.utils.local_data import get_release_model, get_run_dir
 
 def evaluate(agent, env, verbose, logs_path, nb_episode, nb_process, seeds):
     runner_params = env.get_params_for_runner()
@@ -41,8 +41,12 @@ if __name__ == "__main__":
     # python main_expert_rl_eval.py --nb_episode=15 --nb_process=1 --max_step=2016 --verbose=True 
     parser = argparse.ArgumentParser(description="Evaluate the heuristic expert agent")
     parser.add_argument("--logs_dir", required=False,
-                        default="./logs-eval", type=str,
-                        help="Path to output logs directory")
+                        default=None, type=str,
+                        help="Path to output logs directory (default: <run folder>/eval in local_data)")
+    parser.add_argument("--run_name", required=False,
+                        default=None, type=str,
+                        help="Evaluate local_data/<env>/PPO_SB3/<run_name>/model/PPO_SB3 "
+                             "instead of the released model")
     parser.add_argument("--nb_episode", required=False,
                         default=1, type=int,
                         help="Number of episodes to evaluate")
@@ -83,7 +87,15 @@ if __name__ == "__main__":
     
     # Agent parameters
     name = "PPO_SB3"
-    load_path = os.path.join(get_package_root(), "..", name, "model", "PPO_SB3")
+    if args.run_name is None:
+        # The released model, downloaded on first use into local_data/<env>/PPO_SB3/<release tag>/model
+        load_path = get_release_model(name, env_name)
+    else:
+        load_path = get_run_dir(env_name, name, args.run_name, "model", name, create=False)
+    eval_dir = args.logs_dir
+    if eval_dir is None:
+        # <run folder>/eval, next to model/
+        eval_dir = os.path.join(os.path.dirname(os.path.dirname(load_path)), "eval")
     logs_dir = None
 
     net_arch=[800, 1000, 1000, 800]
@@ -114,7 +126,7 @@ if __name__ == "__main__":
     results = evaluate(agent=agent,
                        env=env,
                        verbose=args.verbose,
-                       logs_path=args.logs_dir,
+                       logs_path=eval_dir,
                        nb_episode=args.nb_episode,
                        nb_process=args.nb_process,
                        seeds=seeds

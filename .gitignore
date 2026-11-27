@@ -220,3 +220,7 @@ PPO_SB3_numpy
 PPO_SB3_*
 main_multiple.py
 /l2rpn_case14_sandbox/
+
+# Trained models, checkpoints, tensorboard logs and evaluation results (see README:
+# "Where models and results are stored"). Reference models are published as release assets.
+/local_data/
