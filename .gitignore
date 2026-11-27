@@ -213,3 +213,10 @@ data_other
 logs
 logs_eval
 *.bkp
+logs-eval
+PPO_SB3_PPO_Reward
+PPO_SB3/logs
+PPO_SB3_numpy
+PPO_SB3_*
+main_multiple.py
+/l2rpn_case14_sandbox/
