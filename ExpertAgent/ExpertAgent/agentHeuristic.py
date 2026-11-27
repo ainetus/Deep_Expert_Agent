@@ -162,7 +162,8 @@ if __name__ == "__main__":
     verbose = True
     runner_params = env.get_params_for_runner()
     runner_params["verbose"] = verbose
-    logs_path = "logs"
+    from ExpertAgent.utils.local_data import get_run_dir
+    logs_path = get_run_dir(env_name, "ExpertHeuristic", None, "eval")
     runner = Runner(**runner_params, 
                     agentClass=None, 
                     agentInstance=agent)

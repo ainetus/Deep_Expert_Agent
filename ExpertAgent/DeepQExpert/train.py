@@ -9,6 +9,7 @@ from ExpertAgent.DeepQExpert.deepQExpert import DeepQExpert, DEFAULT_NAME
 from ExpertAgent.DeepQExpert.DeepQ_NNParam import DeepQ_NNParam
 from ExpertAgent.DeepQExpert.DeepQ_NN import DeepQ_NN
 from ExpertAgent.DeepQExpert.trainingParam import TrainingParamCustom
+from ExpertAgent.utils.local_data import get_run_dir, new_run_name
 
 def train(env,
           name=DEFAULT_NAME,
@@ -172,8 +173,7 @@ if __name__ == "__main__":
     game_param.NB_TIMESTEP_COOLDOWN_SUB = 2
     game_param.NB_TIMESTEP_COOLDOWN_LINE = 2
     
-    env_name = "l2rpn_case14_sandbox"
-    # env_name = "ai4realnet_small"
+    env_name = args.env_name  # "l2rpn_case14_sandbox" by default, or "ai4realnet_small"
     env = grid2op.make(dataset=os.path.join(grid2op.get_current_local_dir(), env_name),
                        param=game_param,
                        reward_class=L2RPNReward,
@@ -259,13 +259,21 @@ if __name__ == "__main__":
                          }
     
     nm_ = args.name if args.name is not None else DEFAULT_NAME
+
+    # By default everything of this run goes to local_data/<env_name>/<name>/<run>/:
+    # the model in model/ and the tensorboard logs in logs/.
+    run_name = new_run_name()
+    save_path = args.save_path if args.save_path is not None else get_run_dir(env_name, nm_, run_name, "model")
+    logs_dir = args.logs_dir if args.logs_dir is not None else get_run_dir(env_name, nm_, run_name, "logs")
+    print(f"INFO: the model is saved in {save_path} and the logs in {logs_dir}")
+
     # try:
     baseline = train(env,
                      name=nm_,
                      iterations=args.num_train_steps,
-                     save_path=args.save_path,
+                     save_path=save_path,
                      load_path=args.load_path,
-                     logs_dir=args.logs_dir,
+                     logs_dir=logs_dir,
                      training_param=tp,
                      kwargs_converters=kwargs_converters,
                      kwargs_archi=kwargs_archi,

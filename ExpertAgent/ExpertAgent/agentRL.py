@@ -22,6 +22,8 @@ from LJNAgent.modules.rewards import PPO_Reward
 
 from l2rpn_baselines.PPO_SB3.utils import SB3Agent
 
+from ExpertAgent.utils.local_data import get_env_name, get_run_dir
+
 logging.basicConfig(level=logging.INFO, filename="agent_RL.log", filemode="w")
 logger = logging.getLogger(__name__)
 
@@ -172,8 +174,14 @@ class ExpertAgentRL(SB3Agent, BaseAgent):
                     load_path: Optional[str]=None,
                     save_path: Optional[str]=None,
                     save_freq: int=2000,
-                    eval_freq: int=1000):
-        
+                    eval_freq: int=1000,
+                    checkpoints_path: Optional[str]=None):
+        """Train the PPO model.
+
+        ``save_path`` receives the final model, the best model and the evaluations; it
+        defaults to ``local_data/<env_name>/<agent name>/run_<date-time>/model``.
+        ``checkpoints_path`` receives the intermediate checkpoints; it defaults to ``save_path``.
+        """
         if load_path is not None:
             self.nn_model = PPO.load(path=load_path,
                                      custom_objects={"observation_space" : env_gym.observation_space,
@@ -181,11 +189,13 @@ class ExpertAgentRL(SB3Agent, BaseAgent):
             self.nn_model.set_env(env_gym)
         
         if save_path is None:
-            save_path = os.path.join("logs", self.name)
+            save_path = get_run_dir(get_env_name(self.env), self.name, None, "model")
+        if checkpoints_path is None:
+            checkpoints_path = save_path
         
         callbacks = []
         callbacks.append(CheckpointCallback(save_freq=save_freq,
-                                            save_path=save_path,
+                                            save_path=checkpoints_path,
                                             name_prefix=self.name))
         
         if env_gym is not None:
@@ -235,7 +245,8 @@ class ExpertAgentRL(SB3Agent, BaseAgent):
                      load_path_fine_tune: Optional[str]=None,
                      save_path: Optional[str]=None,
                      save_freq: int=2000,
-                     eval_freq: int=1000):
+                     eval_freq: int=1000,
+                     checkpoints_path: Optional[str]=None):
         
         if load_path is not None:
             if agent._trained:
@@ -246,11 +257,13 @@ class ExpertAgentRL(SB3Agent, BaseAgent):
             agent.nn_model.set_env(env_gym)
         
         if save_path is None:
-            save_path = os.path.join("logs", agent.name)
+            save_path = get_run_dir(get_env_name(agent.env), agent.name, None, "model")
+        if checkpoints_path is None:
+            checkpoints_path = save_path
         
         callbacks = []
         callbacks.append(CheckpointCallback(save_freq=save_freq,
-                                            save_path=save_path,
+                                            save_path=checkpoints_path,
                                             name_prefix=agent.name))
         
         if env_gym is not None:
@@ -297,11 +310,9 @@ if __name__ == "__main__":
                               reward_class=reward_class,
                               )
     
-    logs_dir = "model_logs"
-    if logs_dir is not None:
-        if not os.path.exists(logs_dir):
-            os.mkdir(logs_dir)
-        model_path = os.path.join(logs_dir, "PPO_SB3")
+    # tensorboard logs in local_data/<env_name>/PPO_SB3/<run>/logs, model in .../model
+    run_dir = get_run_dir(env_name, "PPO_SB3")
+    model_path = os.path.join(run_dir, "logs")
     
     net_arch=[800, 1000, 1000, 800]
     policy_kwargs = {}
@@ -328,5 +339,6 @@ if __name__ == "__main__":
     
     agent.train_model(env_gym=env_gym,
                       n_eval_episodes=1,
-                      total_timesteps=int(1e4)
+                      total_timesteps=int(1e4),
+                      save_path=os.path.join(run_dir, "model")
                       )
