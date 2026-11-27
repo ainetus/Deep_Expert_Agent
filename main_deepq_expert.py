@@ -8,8 +8,8 @@ from grid2op.Runner import Runner
 from grid2op.Reward import L2RPNSandBoxScore, L2RPNReward
 
 from ExpertAgent.DeepQExpert import DeepQExpert
-from ExpertAgent.utils import get_package_root
 from ExpertAgent.utils.helper_functions import plot_runner_results
+from ExpertAgent.utils.local_data import get_release_model, get_release_model_dir
 
 # Step 1. load the environment
 env_name = "l2rpn_case14_sandbox"
@@ -19,8 +19,9 @@ env = grid2op.make(os.path.join(grid2op.get_current_local_dir(), env_name),
                         "reward": L2RPNReward
                     })
 
-# Step2. load an already trained agent
-load_path = os.path.join(get_package_root(), "DeepQExpert", "l2rpn_case14_sandbox")
+# Step2. load an already trained agent (downloaded from the GitHub release on first use,
+# into local_data/l2rpn_case14_sandbox/DeepQExpert/<release tag>/model)
+load_path = get_release_model("DeepQExpert", env_name)
 agent = DeepQExpert(action_space=env.action_space,
                     name="DeepQExpert",
                     store_action=True,
@@ -31,7 +32,7 @@ agent = DeepQExpert(action_space=env.action_space,
 runner_params = env.get_params_for_runner()
 runner_params["verbose"] = True
 
-logs_path = os.path.join(get_package_root(), "DeepQExpert", "l2rpn_case14_sandbox", "logs_eval")
+logs_path = os.path.join(get_release_model_dir("DeepQExpert", env_name), "eval")
 os.makedirs(logs_path, exist_ok=True)
 num_episodes = 8
 num_process = 1

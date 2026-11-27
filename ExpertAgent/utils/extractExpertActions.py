@@ -1,10 +1,12 @@
-# python --environment=l2rpn_case14_sandbox --seed=42
+# python ExpertAgent/utils/extractExpertActions.py --environment=ai4realnet_small
+# See getting_started/00_action_extraction_explained.ipynb for a step by step explanation.
 import os
 import argparse
 import logging
 import warnings
 warnings.filterwarnings('ignore')  # Suppress all warnings
 from configparser import ConfigParser
+from typing import Iterable, Optional
 import numpy as np
 from tqdm import tqdm
 
@@ -16,14 +18,16 @@ from alphaDeesp.core.grid2op.Grid2opSimulation import Grid2opSimulation
 from alphaDeesp.core.graphsAndPaths import OverFlowGraph
 from alphaDeesp.core.alphadeesp import AlphaDeesp
 
-from helper_functions import EncodedTopologyAction, action_symmetry, save_actions
+from ExpertAgent.utils.helper_functions import EncodedTopologyAction, action_symmetry, save_actions
 
-logging.basicConfig(level=logging.INFO, filename="expert.log", filemode="w")
 logger = logging.getLogger(__name__)
 
 def get_expert_actions(config: ConfigParser, 
                        env_folder: str, 
-                       env_name: str):
+                       env_name: str,
+                       chronic_indices: Optional[Iterable[int]] = None,
+                       timesteps: Optional[Iterable[int]] = None,
+                       save_dir: Optional[str] = None):
     """The main functionality that computes the most effective expert actions
 
     Parameters
@@ -34,6 +38,13 @@ def get_expert_actions(config: ConfigParser,
         the path to the environment folder
     env_name : str
         the environment name for which the actions should be computed
+    chronic_indices : Iterable[int], optional
+        the scenarios (chronics) to analyse, by default all of them
+    timesteps : Iterable[int], optional
+        the timesteps of each scenario to analyse, by default all of them
+    save_dir : str, optional
+        where to write the results, by default ``local_data/<env_name>/ExpertActions``
+        (see :func:`ExpertAgent.utils.helper_functions.save_actions`)
     """    
     loader = Grid2opObservationLoader(env_folder)
     env, obs, action_space = loader.get_observation(chronic_scenario= 0, timestep=0)
@@ -45,13 +56,16 @@ def get_expert_actions(config: ConfigParser,
     # available_chronics = env.chronics_handler.real_data.available_chronics()
     available_chronics = env.chronics_handler.real_data.chronics_used
     num_chronics = len(available_chronics)
-    chronic_indices = list(np.arange(0, num_chronics, 1)) # we can filter here by changing 1->2 and use 2 only for evaluation
+    if chronic_indices is None:
+        chronic_indices = list(np.arange(0, num_chronics, 1)) # we can filter here by changing 1->2 and use 2 only for evaluation
+    if timesteps is None:
+        timesteps = range(env.max_episode_duration())
     original_action_indices = []
     action_list = []
     action_space_size = 0
 
     for chronic in tqdm(chronic_indices):
-        for timestep in range(env.max_episode_duration()):
+        for timestep in timesteps:
             # print(f"Chronic: {chronic:3d}, timestep: {timestep}")
             logger.info(f"Chronic: {chronic:3d}, timestep: {timestep}")
             env, obs, action_space = loader.get_observation(chronic_scenario= chronic, timestep=timestep)
@@ -90,12 +104,14 @@ def get_expert_actions(config: ConfigParser,
             #     break
             if action_list:
                 action_list_encoded = [EncodedTopologyAction.encode_action(act) for act in action_list]
-                save_actions("", env, env_name, action_list_encoded, action_list, original_action_indices)
+                save_actions("", env, env_name, action_list_encoded, action_list, original_action_indices,
+                             save_dir=save_dir)
             else:
                 continue
         print("Action list length: ", len(action_list))
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, filename="expert.log", filemode="w")
     parser = argparse.ArgumentParser(prog="ExpertActions")
     parser.add_argument('--environment', help="the environment name", default="ai4realnet_small", type=str, required=True)
     # parser.add_argument('--seed', help="Seed used for environment and numpy random", default=1, type=int, required=True)

@@ -35,7 +35,8 @@ def save_actions(name:str,
                  action_list_encoded: list, 
                  action_list: Optional[list]=None, 
                  original_action_index: Optional[list]=None,
-                 save_only_encoded: bool=True):
+                 save_only_encoded: bool=True,
+                 save_dir: Optional[str]=None):
     """Functionality to save actions returned by expert search
 
     Parameters
@@ -54,14 +55,21 @@ def save_actions(name:str,
         _description_, by default None
     save_only_encoded : bool, optional
         _description_, by default True
-    """    
+    save_dir : Optional[str], optional
+        where to write the files, by default ``local_data/<env_name>/ExpertActions``.
+        To use the result as an agent's action space, copy the ``.npz`` into ``ExpertAgent/assets``.
+    """
+    if save_dir is None:
+        from ExpertAgent.utils.local_data import get_local_data_dir
+        save_dir = os.path.join(get_local_data_dir(), env_name, "ExpertActions")
+    os.makedirs(save_dir, exist_ok=True)
     data_df = pd.DataFrame(action_list_encoded)
-    data_df.to_csv(f'{env_name}_action_list_encoded_{name}.csv', index=False, header=False, mode="a")
+    data_df.to_csv(os.path.join(save_dir, f'{env_name}_action_list_encoded_{name}.csv'), index=False, header=False, mode="a")
     unique_actions = data_df.iloc[:,0].unique()
     action_list_decoded = [EncodedTopologyAction.decode_action(action_string, env) for action_string in unique_actions]
     actions_vectorized = [action.to_vect() for action in action_list_decoded]
     actions_vectorized = np.vstack(actions_vectorized)
-    np.savez_compressed(f'{env_name}_expert_actions_vectorized_{name}', 
+    np.savez_compressed(os.path.join(save_dir, f'{env_name}_expert_actions_vectorized_{name}'), 
                         action_space=actions_vectorized, 
                         counts=np.arange(len(actions_vectorized)))
                 
@@ -69,10 +77,10 @@ def save_actions(name:str,
         # data_df = pd.DataFrame(action_list_encoded)
         # data_df.to_csv(f'{env_name}_action_list_encoded.csv', index=False, header=False, mode="a")
     
-        with open(f'{env_name}_action_list_{name}.pkl', 'wb') as file:
+        with open(os.path.join(save_dir, f'{env_name}_action_list_{name}.pkl'), 'wb') as file:
             pickle.dump(action_list, file)
 
-        with open(f'{env_name}_action_indices_{name}.pkl', 'wb') as file:
+        with open(os.path.join(save_dir, f'{env_name}_action_indices_{name}.pkl'), 'wb') as file:
             pickle.dump(original_action_index, file)
 
 def load_action_space(path, file_name, env_name):

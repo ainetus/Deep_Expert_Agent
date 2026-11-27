@@ -9,6 +9,7 @@ from LJNAgent.modules.rewards import MaxRhoReward
 from ExpertAgent import ExpertAgentHeuristic
 from ExpertAgent import ASSETS
 from ExpertAgent.utils.helper_functions import plot_runner_results
+from ExpertAgent.utils.local_data import get_run_dir
 
 
 def evaluate(env, nb_episode,nb_process, max_steps, verbose, logs_path, seeds):
@@ -47,8 +48,12 @@ if __name__ == "__main__":
     # python main_expert_heuristic.py --nb_episode=15 --nb_process=1 --max_step=2016 --verbose=True 
     parser = argparse.ArgumentParser(description="Evaluate the heuristic expert agent")
     parser.add_argument("--logs_dir", required=False,
-                        default="./logs-eval", type=str,
-                        help="Path to output logs directory")
+                        default=None, type=str,
+                        help="Path to output logs directory "
+                             "(default: local_data/<env>/ExpertHeuristic/<run_name>/eval)")
+    parser.add_argument("--run_name", required=False,
+                        default=None, type=str,
+                        help="Name of the run folder in local_data (default: run_<date-time>)")
     parser.add_argument("--nb_episode", required=False,
                         default=1, type=int,
                         help="Number of episodes to evaluate")
@@ -80,13 +85,18 @@ if __name__ == "__main__":
     obs = env.reset()
     
     seeds = np.arange(args.nb_episode)
-    
+
+    logs_dir = args.logs_dir
+    if logs_dir is None:
+        logs_dir = get_run_dir(env_name, "ExpertHeuristic", args.run_name, "eval")
+    print(f"INFO: the evaluation results are saved in {logs_dir}")
+
     results = evaluate(env, 
                        nb_episode=args.nb_episode, 
                        nb_process=args.nb_process, 
                        max_steps=args.max_steps, 
                        verbose=args.verbose, 
-                       logs_path=args.logs_dir,
+                       logs_path=logs_dir,
                        seeds=seeds)
     
     plot_runner_results(results, args.max_steps)
