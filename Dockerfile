@@ -31,7 +31,6 @@ RUN pip install --no-cache-dir -r requirements_docker.txt
 # Copy API + agent package
 COPY app ./app/
 COPY ExpertAgent ./ExpertAgent/
-COPY PPO_SB3 ./PPO_SB3/
 COPY setup.py .
 COPY README.md .
 
@@ -40,6 +39,11 @@ COPY README.md .
 # so this step cannot pull the GPU wheel back in on top of what was installed above.
 # It is set per-RUN rather than via ENV so it does not linger in the final image.
 RUN EXPERTAGENT_CPU_ONLY=1 pip install --no-cache-dir .
+
+# Download the PPO model used by the API from the GitHub release into the image
+# (see README: "Pretrained models and local_data").
+ENV EXPERTAGENT_LOCAL_DATA=/app/local_data
+RUN python -m ExpertAgent.utils.local_data download PPO_SB3
 
 # Expose port
 EXPOSE 8000

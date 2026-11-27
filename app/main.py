@@ -1,9 +1,9 @@
 # command to execute the API
 # uvicorn main_multiple:app --host 0.0.0.0 --port 8000
 # Command to request a single recommendation from server (unchanged, kept for comparison)
-# curl -X POST http://localhost:8000/api/v1/recommendation -H "Content-Type: application/json" --data @rte_recommendation.json
+# curl -X POST http://localhost:8000/api/v1/recommendation -H "Content-Type: application/json" --data @context_disc_example.json
 # Command to request several ranked recommendations from server (new)
-# curl -X POST http://localhost:8000/api/v1/recommendations -H "Content-Type: application/json" --data @rte_recommendation.json
+# curl -X POST http://localhost:8000/api/v1/recommendations -H "Content-Type: application/json" --data @context_topo_example.json
 # docker build -t expert-agent-api .
 # docker run -p 8000:8000 expert-agent-api
 # docker run --rm -it --entrypoint bash expert-agent-api
@@ -19,7 +19,7 @@ from LJNAgent.modules.rewards import PPO_Reward
 from LJNAgent.modules.rewards import MaxRhoReward
 from stable_baselines3.ppo import MlpPolicy
 from ExpertAgent.utils.helper_functions import create_env
-from ExpertAgent.utils import get_package_root
+from ExpertAgent.utils.local_data import get_release_model
 from ExpertAgent.ExpertAgent import ExpertAgentRL
 
 
@@ -41,7 +41,7 @@ obs = env.reset()
 
 # --- Agent parameters and load path ---
 name = "PPO_SB3"
-load_path = os.path.join(get_package_root(), "..", name, "model", "PPO_SB3")
+load_path = get_release_model(name, env_name)  # downloaded when the image is built, see Dockerfile
 logs_dir = None
 
 net_arch=[800, 1000, 1000, 800]
